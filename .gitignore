@@ -1,0 +1,9 @@
+.env
+secrets/
+*.token.json
+gsc_client_secret.json
+gsc_token.json
+*.xlsx
+.streamlit/secrets.toml
+secrets.toml
+__pycache__/
