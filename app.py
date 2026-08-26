@@ -15,22 +15,26 @@ this file, never in the repo. See secrets.toml.example for the shape.
 import io
 import json
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
+from googleapiclient.discovery import build as build_google_service
 from openpyxl import Workbook
 
 from scripts.build_report import (
     build_serp_sheet, build_ahrefs_sheet, build_gsc_sheet, build_competitor_sheet,
 )
+from scripts.fetch_gsc import get_credentials_from_values, run_query as gsc_run_query
 from scripts.fetch_serp import fetch_serp, build_serp_json
 from scripts.find_pages import search_site, domain_of, TARGET_DOMAIN, COMPETITOR_DOMAINS
 from scripts.scrape_competitors import extract_structure, HEADERS as SCRAPE_HEADERS
 from scripts.parse_ahrefs_csv import find_column, to_number, FIELD_VARIANTS, INTENT_VARIANTS
-from scripts.parse_gsc_csv import FIELD_VARIANTS as GSC_FIELD_VARIANTS, to_float as gsc_to_float
 import csv as csv_module
+
+GSC_SITE_PROPERTY = "https://www.papernest.com/"
 
 st.set_page_config(page_title="Revamp Report — papernest FR", page_icon="📊")
 st.title("📊 Revamp Report — génération automatique")
@@ -127,32 +131,30 @@ def step_parse_ahrefs_csv(uploaded_file):
 
 
 # ---------------------------------------------------------------------------
-# Step 4 — GSC: CSV upload (no Google Cloud Console access needed). Export
-# from search.google.com/search-console: Performance report -> filter Page
-# = target URL -> Export -> Download CSV. See scripts/parse_gsc_csv.py.
+# Step 4 — GSC: automatic via OAuth (no CSV, no manual step). Credentials
+# come from a one-time local browser login (see scripts/fetch_gsc.py); the
+# hosted app only ever refreshes the stored refresh_token, never logs in
+# interactively itself.
 # ---------------------------------------------------------------------------
-def step_parse_gsc_csv(uploaded_file):
-    text = uploaded_file.getvalue().decode("utf-8-sig")
-    reader = csv_module.DictReader(io.StringIO(text))
-    fieldnames_lower = {name.strip().lower(): name for name in reader.fieldnames}
-    col = {key: find_column(fieldnames_lower, variants) for key, variants in GSC_FIELD_VARIANTS.items()}
-    if not col["query"]:
-        raise ValueError(f"Colonne 'Query'/'Requêtes' introuvable. Colonnes trouvées : {reader.fieldnames}")
+def step_fetch_gsc(target_url, client_id, client_secret, refresh_token):
+    creds = get_credentials_from_values(client_id, client_secret, refresh_token)
+    service = build_google_service("searchconsole", "v1", credentials=creds)
+
+    end = date.today()
+    start = end - timedelta(days=180)
+    raw_rows = gsc_run_query(
+        service, GSC_SITE_PROPERTY, start.isoformat(), end.isoformat(),
+        dimensions=["query"], row_limit=1000, page_filter=target_url,
+    )
 
     rows = []
-    for raw_row in reader:
-        query = (raw_row.get(col["query"]) or "").strip()
-        if not query:
-            continue
-        ctr = gsc_to_float(raw_row.get(col["ctr"])) if col["ctr"] else 0.0
-        if ctr > 1:
-            ctr = ctr / 100
+    for r in raw_rows:
         rows.append({
-            "query": query,
-            "clicks": gsc_to_float(raw_row.get(col["clicks"])) if col["clicks"] else 0,
-            "impressions": gsc_to_float(raw_row.get(col["impressions"])) if col["impressions"] else 0,
-            "ctr": ctr,
-            "position": gsc_to_float(raw_row.get(col["position"])) if col["position"] else 0,
+            "query": r["keys"][0],
+            "clicks": r.get("clicks", 0),
+            "impressions": r.get("impressions", 0),
+            "ctr": r.get("ctr", 0.0),
+            "position": r.get("position", 0.0),
         })
     return rows
 
@@ -202,10 +204,6 @@ with st.form("revamp_form"):
         "Export CSV Ahrefs (Keywords Explorer → ton mot-clé → Matching terms → Terms match: All → Export)",
         type=["csv"],
     )
-    gsc_csv = st.file_uploader(
-        "Export CSV Search Console (Performance report → filtre Page = URL cible → Export → CSV)",
-        type=["csv"],
-    )
     submitted = st.form_submit_button("Générer le rapport")
 
 if submitted:
@@ -215,14 +213,15 @@ if submitted:
     if not ahrefs_csv:
         st.error("Dépose le fichier CSV Ahrefs — sans lui, l'onglet mots-clés secondaires ne peut pas être rempli.")
         st.stop()
-    if not gsc_csv:
-        st.error("Dépose le fichier CSV Search Console — sans lui, l'onglet GSC ne peut pas être rempli.")
-        st.stop()
 
     serpapi_key = st.secrets.get("SERPAPI_API_KEY")
     if not serpapi_key:
         st.error("Clé SerpAPI absente des Secrets de l'app — contacte l'admin de l'outil.")
         st.stop()
+
+    gsc_client_id = st.secrets.get("GSC_CLIENT_ID")
+    gsc_client_secret = st.secrets.get("GSC_CLIENT_SECRET")
+    gsc_refresh_token = st.secrets.get("GSC_REFRESH_TOKEN")
 
     with st.status("Génération en cours...", expanded=True) as status:
         st.write("🔎 Recherche de la page cible et des pages concurrentes...")
@@ -247,12 +246,16 @@ if submitted:
         ahrefs_rows = step_parse_ahrefs_csv(ahrefs_csv)
         st.write(f"→ {len(ahrefs_rows)} mots-clés secondaires trouvés")
 
-        st.write("📊 Lecture des stats Google Search Console...")
-        try:
-            gsc_rows = step_parse_gsc_csv(gsc_csv)
-            st.write(f"→ {len(gsc_rows)} requêtes trouvées")
-        except Exception as e:
-            st.warning(f"Lecture du CSV Search Console impossible ({e}) — le rapport sera généré sans cet onglet rempli.")
+        st.write("📊 Récupération des stats Google Search Console...")
+        if gsc_client_id and gsc_client_secret and gsc_refresh_token:
+            try:
+                gsc_rows = step_fetch_gsc(pages["target"]["url"], gsc_client_id, gsc_client_secret, gsc_refresh_token)
+                st.write(f"→ {len(gsc_rows)} requêtes trouvées")
+            except Exception as e:
+                st.warning(f"Récupération Search Console impossible ({e}) — le rapport sera généré sans cet onglet rempli.")
+                gsc_rows = []
+        else:
+            st.warning("Identifiants Search Console absents des Secrets de l'app — onglet GSC non rempli.")
             gsc_rows = []
 
         st.write("📁 Assemblage du fichier Excel...")

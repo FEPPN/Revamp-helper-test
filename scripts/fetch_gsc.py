@@ -42,6 +42,23 @@ CLIENT_SECRET_PATH = Path(os.environ.get("GSC_CLIENT_SECRET_PATH", SCRIPT_DIR / 
 TOKEN_PATH = Path(os.environ.get("GSC_TOKEN_PATH", SCRIPT_DIR / "secrets" / "gsc_token.json"))
 
 
+def get_credentials_from_values(client_id, client_secret, refresh_token):
+    """Build credentials directly from stored values (Streamlit Secrets) —
+    no local file, no browser. Used by the hosted app; the interactive
+    browser login only ever happens once, locally, to obtain the
+    refresh_token in the first place."""
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES,
+    )
+    creds.refresh(Request())
+    return creds
+
+
 def get_credentials():
     creds = None
     if TOKEN_PATH.exists():
