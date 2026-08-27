@@ -14,6 +14,8 @@ this file, never in the repo. See secrets.toml.example for the shape.
 
 import io
 import json
+import subprocess
+import sys
 import tempfile
 from datetime import date, timedelta
 from pathlib import Path
@@ -26,6 +28,7 @@ from openpyxl import Workbook
 
 from scripts.build_report import (
     build_aide_sheet, build_serp_sheet, build_ahrefs_sheet, build_gsc_sheet, build_competitor_sheet,
+    build_entity_sheet,
 )
 from scripts.fetch_gsc import get_credentials_from_values, run_query as gsc_run_query
 from scripts.fetch_serp import fetch_serp, build_serp_json
@@ -37,6 +40,7 @@ from scripts.parse_ahrefs_csv import (
 import csv as csv_module
 
 GSC_SITE_PROPERTY = "https://www.papernest.com/"
+ENTITY_SCRIPT = Path(__file__).resolve().parent / "scripts" / "analyze_entities.py"
 
 st.set_page_config(page_title="Revamp Report — papernest FR", page_icon="📊")
 st.title("📊 Revamp Report — génération automatique")
@@ -93,6 +97,31 @@ def step_scrape_competitors(pages):
                 "site": comp["site"], "url": comp["url"], "h1": "(échec du téléchargement)",
                 "structure": [], "summary": f"Erreur : {e}", "no_dedicated_avis_page": True,
             })
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Step — entity gap (page cible vs concurrents), via Google Natural Language
+# API. Runs the pack's stdlib-only analyze_entities.py as a subprocess (same
+# proven integration pattern as Page Audit) — no reimplementation.
+# ---------------------------------------------------------------------------
+def step_entity_gap(page_url, competitor_urls, api_key):
+    if not competitor_urls:
+        return None, "Aucune page concurrente valide à comparer."
+    env = {**__import__("os").environ, "GOOGLE_NLP_API_KEY": api_key}
+    cmd = [sys.executable, str(ENTITY_SCRIPT), page_url, "--language", "fr",
+           "--gap-vs", ",".join(competitor_urls), "--json"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90, env=env)
+    except subprocess.TimeoutExpired:
+        return None, "Analyse d'entités trop longue (timeout)."
+    if proc.returncode != 0:
+        return None, proc.stderr.strip() or "Échec de l'analyse d'entités."
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None, "Réponse d'analyse d'entités illisible."
+    return data.get("gap"), None
     return results
 
 
@@ -162,7 +191,8 @@ def step_fetch_gsc(target_url, client_id, client_secret, refresh_token):
 # Assembly — same logic as build_report.py, fed from in-memory data instead
 # of files (the CLI script still works standalone for local/manual runs).
 # ---------------------------------------------------------------------------
-def assemble_workbook(keyword, brand, serp_data, ahrefs_rows, gsc_rows, competitors_data, page_url):
+def assemble_workbook(keyword, brand, serp_data, ahrefs_rows, gsc_rows, competitors_data, page_url,
+                       entity_gap=None):
     wb = Workbook()
     build_aide_sheet(wb)
 
@@ -187,6 +217,9 @@ def assemble_workbook(keyword, brand, serp_data, ahrefs_rows, gsc_rows, competit
         comp_path = tmp / "competitors.json"
         comp_path.write_text(json.dumps(competitors_data, ensure_ascii=False), encoding="utf-8")
         build_competitor_sheet(wb, comp_path)
+
+        if entity_gap:
+            build_entity_sheet(wb, entity_gap, page_url)
 
     buffer = io.BytesIO()
     wb.save(buffer)
@@ -222,6 +255,7 @@ if submitted:
     gsc_client_id = st.secrets.get("GSC_CLIENT_ID")
     gsc_client_secret = st.secrets.get("GSC_CLIENT_SECRET")
     gsc_refresh_token = st.secrets.get("GSC_REFRESH_TOKEN")
+    google_nlp_key = st.secrets.get("GOOGLE_NLP_API_KEY")
 
     with st.status("Génération en cours...", expanded=True) as status:
         st.write("🔎 Recherche de la page cible et des pages concurrentes...")
@@ -258,9 +292,19 @@ if submitted:
             st.warning("Identifiants Search Console absents des Secrets de l'app — onglet GSC non rempli.")
             gsc_rows = []
 
+        st.write("🧩 Analyse de l'écart d'entités vs concurrents...")
+        entity_gap = None
+        if google_nlp_key:
+            comp_urls = [c["url"] for c in pages["competitors"] if c.get("url")]
+            entity_gap, entity_err = step_entity_gap(pages["target"]["url"], comp_urls, google_nlp_key)
+            if entity_err:
+                st.warning(f"Analyse d'entités indisponible ({entity_err}) — onglet Entités non rempli.")
+        else:
+            st.warning("Clé Google NLP absente des Secrets de l'app — onglet Entités non rempli.")
+
         st.write("📁 Assemblage du fichier Excel...")
         buffer = assemble_workbook(keyword, brand, serp_data, ahrefs_rows, gsc_rows, competitors_data,
-                                    pages["target"]["url"])
+                                    pages["target"]["url"], entity_gap=entity_gap)
 
         status.update(label="Terminé ✅", state="complete")
 

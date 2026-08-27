@@ -166,7 +166,7 @@ def build_aide_sheet(wb):
          "saches quoi écrire et pourquoi, pas juste \"écrire un article sur EDF\".", height=75)
     r += 1
 
-    title("Les 4 onglets, en clair")
+    title("Les 5 onglets, en clair")
     bullet("SERP", "ce que Google montre en tapant le mot-clé aujourd'hui : qui est en top 10, quelles "
            "questions les gens posent en plus (\"Autres questions posées\"), et si Google affiche déjà un "
            "résumé IA (AI Overview) — utile pour voir si ta page a une chance d'être citée ou si elle doit "
@@ -181,6 +181,39 @@ def build_aide_sheet(wb):
     bullet("Concurrents", "la structure (titres H1/H2/H3) des pages équivalentes chez Selectra, Kelwatt, "
            "Hellowatt et Fournisseurs-électricité. Sert à repérer ce qu'ils couvrent que ta page ne couvre "
            "pas encore, ou à l'inverse ce qu'ils font mal / n'ont pas — un angle à exploiter.")
+    bullet("Entités", "les vrais noms (marques, régulateurs, associations, offres concurrentes...) que les "
+           "concurrents citent et que ta page ne cite jamais. Différent d'Ahrefs : ça révèle des manques "
+           "qu'AUCUN mot-clé ne signale. Détail complet et exemple juste en dessous — c'est l'onglet le "
+           "moins intuitif des cinq, prends 2 minutes pour le lire.")
+    r += 1
+
+    title("Les entités — pourquoi c'est aussi important que les mots-clés")
+    para("Un mot-clé, c'est une PHRASE que quelqu'un tape. Une entité, c'est une VRAIE CHOSE que Google "
+         "reconnaît dans un texte : une entreprise (EDF, Selectra), une institution (la Commission de "
+         "régulation de l'énergie), une association (UFC-Que Choisir), un concurrent cité en comparaison "
+         "(Engie, TotalEnergies). Google ne se contente pas de compter les mots-clés d'une page : il regarde "
+         "aussi QUELLES VRAIES CHOSES elle mentionne, pour juger si elle traite le sujet en profondeur ou en "
+         "surface.", height=75)
+    para("Le problème que ça résout : un mot-clé manquant, tu le VOIS (0 volume, 0 clic dans GSC). Une "
+         "entité manquante, elle, ne se voit NULLE PART dans les autres onglets — aucun outil de mots-clés "
+         "ne te dira \"ta page ne cite jamais la Commission de régulation de l'énergie alors que 3 de tes "
+         "concurrents le font\". C'est exactement ce que fait l'onglet Entités.", height=60)
+    para("Exemple réel (test sur une page \"avis EDF\" vs Selectra) : Selectra mentionne \"Enercoop\", "
+         "\"CLEEE\", \"FNCCR\", \"Gaz de Bordeaux\" — des acteurs réels du secteur énergie. Aucun de ces noms "
+         "n'apparaît comme mot-clé à volume dans Ahrefs (donc invisible autrement), mais leur absence peut "
+         "donner à Google l'impression que la page papernest couvre le sujet moins en profondeur que celle "
+         "de Selectra.", height=60)
+    bullet("Colonne \"Présente chez\"", "sur combien de concurrents (sur le total analysé) cette entité "
+           "apparaît. Plus c'est haut, plus c'est un standard du sujet, pas un détail isolé chez un seul "
+           "concurrent.")
+    bullet("Colonne \"Reconnue par Google\"", "\"Oui\" = Google a formellement identifié cette entité comme "
+           "une vraie organisation/marque connue (fiche Knowledge Graph). \"Vue mais pas identifiée\" = un "
+           "nom propre repéré dans le texte mais que Google ne relie à aucune fiche connue — souvent un "
+           "signal de bruit (nom de personne, marque trop petite) plutôt qu'une vraie priorité.")
+    bullet("3 sections du fichier", "\"Manquantes chez nous\" (à considérer pour la réécriture, en priorité "
+           "celles reconnues et présentes chez plusieurs concurrents) ; \"Partagées\" (le socle que tout le "
+           "monde couvre déjà, rien à ajouter) ; \"Uniquement chez nous\" (soit un vrai différenciant à "
+           "valoriser, soit hors-sujet à vérifier).")
     r += 1
 
     title("Les colonnes de l'onglet Ahrefs, une par une")
@@ -224,7 +257,11 @@ def build_aide_sheet(wb):
            "ce sont tes candidats pour de nouvelles sections H2.")
     bullet("4.", "Pour chaque sous-thème retenu, lis sa colonne \"Intention de recherche\" — ça te dit quel "
            "angle rédiger (preuve sociale, réponse à une inquiétude, comparaison...).")
-    bullet("5.", "Rédige/révise la page avec ces sections, en gardant les mots-clés GSC qui marchent déjà "
+    bullet("5.", "Ouvre l'onglet Entités — ajoute dans ta rédaction les entités \"Manquantes chez nous\" "
+           "reconnues par Google et présentes chez plusieurs concurrents (régulateurs, associations, offres "
+           "concurrentes citées en comparaison...) : invisibles dans Ahrefs, mais Google les compte quand "
+           "même comme faisant partie du sujet complet.", height=60)
+    bullet("6.", "Rédige/révise la page avec ces sections, en gardant les mots-clés GSC qui marchent déjà "
            "et en couvrant les angles concurrents repérés à l'étape 1.", height=60)
 
     autosize(ws, [110, 20, 20, 20])
@@ -391,6 +428,69 @@ def build_competitor_sheet(wb, competitors_path):
     autosize(ws, [14, 70, 60])
 
 
+def build_entity_sheet(wb, gap_data, page_url):
+    """Écart d'entités (Google NLP) : ce que les concurrents mentionnent comme
+    marques/produits/organisations reconnus et que notre page ne mentionne pas
+    du tout — un signal de contenu manquant que les mots-clés seuls ne voient
+    pas toujours (une entité peut manquer sans qu'aucun mot-clé Ahrefs ne le
+    signale explicitement)."""
+    ws = wb.create_sheet("Entités")
+    n = gap_data.get("competitors", 0)
+
+    ws["A1"] = f"Écart d'entités — {page_url}"
+    ws["A1"].font = TITLE_FONT
+    ws.merge_cells("A1:C1")
+    ws["A2"] = f"Comparé à {n} page(s) concurrente(s) via Google Natural Language API"
+    ws["A2"].font = Font(italic=True, color="6B7280")
+
+    r = 4
+    ws.cell(row=r, column=1, value="⚠️ Manquantes chez nous, présentes chez les concurrents").font = Font(
+        bold=True, size=12, color="FF2056")
+    r += 1
+    headers = ["Entité", "Présente chez", "Reconnue par Google"]
+    for i, h in enumerate(headers, start=1):
+        ws.cell(row=r, column=i, value=h)
+    style_header(ws, row=r, ncols=3)
+    r += 1
+    if gap_data.get("gaps"):
+        for g in gap_data["gaps"]:
+            ws.cell(row=r, column=1, value=g["name"])
+            ws.cell(row=r, column=2, value=f"{g['on_competitors']}/{n} concurrent(s)")
+            ws.cell(row=r, column=3, value="Oui" if g.get("mid") else "Vue mais pas identifiée")
+            r += 1
+    else:
+        ws.cell(row=r, column=1, value="(aucun écart détecté)")
+        r += 1
+
+    r += 1
+    ws.cell(row=r, column=1, value="✅ Partagées (nous + concurrents) — le socle attendu").font = Font(
+        bold=True, size=12, color="5A52FF")
+    r += 1
+    if gap_data.get("shared"):
+        cell = ws.cell(row=r, column=1,
+                        value=", ".join(f"{s['name']} ({s['on_competitors']}/{n})" for s in gap_data["shared"]))
+        cell.alignment = WRAP
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+        ws.row_dimensions[r].height = 45
+    else:
+        ws.cell(row=r, column=1, value="(aucune)")
+    r += 2
+
+    ws.cell(row=r, column=1, value="🟢 Uniquement chez nous — différenciant ou hors-sujet à vérifier").font = Font(
+        bold=True, size=12, color="02C5AE")
+    r += 1
+    if gap_data.get("our_unique"):
+        cell = ws.cell(row=r, column=1, value=", ".join(e["name"] for e in gap_data["our_unique"]))
+        cell.alignment = WRAP
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+        ws.row_dimensions[r].height = 45
+    else:
+        ws.cell(row=r, column=1, value="(aucune)")
+
+    autosize(ws, [40, 22, 26])
+    ws.freeze_panes = "A5"
+
+
 def build_ia_generative_sheet(wb, ia_path):
     data = load_json(ia_path)
     ws = wb.create_sheet("IA générative")
@@ -460,6 +560,7 @@ def main():
     parser.add_argument("--gsc-csv", required=True, help="gsc-connector CSV filtered with --page")
     parser.add_argument("--page-url", required=True, help="Exact target papernest.com page URL")
     parser.add_argument("--ia-generative-json", help="Optional: AI Generative tab JSON (AI Overview + fan-out)")
+    parser.add_argument("--entity-gap-json", help="Optional: entity gap JSON (analyze_entities.py --gap-vs --json)")
     parser.add_argument("--out", required=True, help="Output xlsx path")
     args = parser.parse_args()
 
@@ -469,6 +570,8 @@ def main():
     build_ahrefs_sheet(wb, args.matching_json, args.brand)
     build_gsc_sheet(wb, args.gsc_csv, args.page_url)
     build_competitor_sheet(wb, args.competitors_json)
+    if args.entity_gap_json:
+        build_entity_sheet(wb, load_json(args.entity_gap_json).get("gap", {}), args.page_url)
     if args.ia_generative_json:
         build_ia_generative_sheet(wb, args.ia_generative_json)
 

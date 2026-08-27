@@ -8,3 +8,4 @@ gsc_token.json
 secrets.toml
 __pycache__/
 *.log
+.cache/
