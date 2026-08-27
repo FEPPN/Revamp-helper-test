@@ -35,7 +35,11 @@ try:
 except ImportError:
     pass
 
-SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/webmasters.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.file",
+]
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CLIENT_SECRET_PATH = Path(os.environ.get("GSC_CLIENT_SECRET_PATH", SCRIPT_DIR / "secrets" / "gsc_client_secret.json"))

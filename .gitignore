@@ -7,3 +7,4 @@ gsc_token.json
 .streamlit/secrets.toml
 secrets.toml
 __pycache__/
+*.log

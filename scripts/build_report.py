@@ -129,6 +129,108 @@ def detailed_intent_fr(keyword, brand):
             "perçu plus que par le prix.")
 
 
+def build_aide_sheet(wb):
+    ws = wb.active
+    ws.title = "Aide"
+
+    r = 1
+    ws.cell(row=r, column=1, value="🆘 Comment utiliser ce rapport").font = Font(bold=True, size=16, color="5A52FF")
+    r += 2
+
+    def title(text, size=13):
+        nonlocal r
+        ws.cell(row=r, column=1, value=text).font = Font(bold=True, size=size, color="5A52FF")
+        r += 1
+
+    def para(text, height=45):
+        nonlocal r
+        cell = ws.cell(row=r, column=1, value=text)
+        cell.alignment = WRAP
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
+        ws.row_dimensions[r].height = height
+        r += 1
+
+    def bullet(label, text, height=45):
+        nonlocal r
+        cell = ws.cell(row=r, column=1, value=f"{label} — {text}")
+        cell.alignment = WRAP
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
+        ws.row_dimensions[r].height = height
+        r += 1
+
+    title("Ça sert à quoi, ce fichier ?")
+    para("Tu vas revamper une page \"avis [marque]\" (ou une page démarche énergie). Ce fichier rassemble en "
+         "un seul endroit tout ce qu'il faudrait normalement chercher à la main sur 4-5 outils différents : "
+         "ce que Google affiche pour ce mot-clé, les vraies variantes que les gens tapent (avec leur volume), "
+         "les stats réelles de la page sur Search Console, et ce que font les concurrents. Le but : que tu "
+         "saches quoi écrire et pourquoi, pas juste \"écrire un article sur EDF\".", height=75)
+    r += 1
+
+    title("Les 4 onglets, en clair")
+    bullet("SERP", "ce que Google montre en tapant le mot-clé aujourd'hui : qui est en top 10, quelles "
+           "questions les gens posent en plus (\"Autres questions posées\"), et si Google affiche déjà un "
+           "résumé IA (AI Overview) — utile pour voir si ta page a une chance d'être citée ou si elle doit "
+           "juste viser le classement classique.")
+    bullet("Ahrefs", "toutes les variantes du mot-clé principal que les gens tapent réellement, avec le "
+           "volume de recherche de chacune. Exemple : pour \"avis edf\", ça remonte aussi \"izi by edf avis\", "
+           "\"offre tempo edf avis\", \"sowee edf avis\"... — des offres EDF que la page doit peut-être couvrir "
+           "ou au moins lier, sinon elle rate ce trafic-là.")
+    bullet("GSC", "les requêtes qui, AUJOURD'HUI, amènent déjà des clics sur la page depuis Google (Search "
+           "Console). Ça te dit ce qui marche déjà — à ne surtout pas casser en revampant — et parfois des "
+           "requêtes surprenantes que la page capte sans même les viser exprès.")
+    bullet("Concurrents", "la structure (titres H1/H2/H3) des pages équivalentes chez Selectra, Kelwatt, "
+           "Hellowatt et Fournisseurs-électricité. Sert à repérer ce qu'ils couvrent que ta page ne couvre "
+           "pas encore, ou à l'inverse ce qu'ils font mal / n'ont pas — un angle à exploiter.")
+    r += 1
+
+    title("Les colonnes de l'onglet Ahrefs, une par une")
+    bullet("Volume/mois", "combien de personnes tapent EXACTEMENT cette phrase chaque mois. Simple : plus "
+           "c'est haut, plus de gens cherchent ça mot pour mot.")
+    bullet("KD (Keyword Difficulty)", "une note de 0 à 100 qui dit si c'est dur de se classer en top 10 "
+           "Google sur ce mot précis (calculée sur la force des liens des pages déjà en tête, pas sur la "
+           "qualité du contenu). 0-10 = facile à viser, 40+ = déjà très disputé, difficile sans gros travail.")
+    bullet("CPC ($)", "le prix moyen qu'un annonceur paierait pour une pub sur ce mot-clé. Sert d'indice : "
+           "plus c'est cher, plus la personne qui tape ça est proche d'acheter/souscrire.")
+    bullet("Potentiel de trafic", "PAS le volume du mot-clé lui-même : c'est le trafic TOTAL (toutes requêtes "
+           "confondues) que récolte la page actuellement n°1 dessus. Exemple : \"assistance dépannage edf "
+           "avis\" a 150 recherches/mois, mais un Potentiel de trafic de 3100 — la page n°1 vit aussi de "
+           "dizaines de variantes proches. Un potentiel très supérieur au volume = signal qu'il faut une "
+           "vraie section dédiée à ce sujet, pas juste une phrase en passant.")
+    bullet("Intention (Ahrefs)", "la catégorie officielle Ahrefs (Informationnelle, Commerciale, Branded...). "
+           "Basique, utile pour trier vite.")
+    bullet("Intention de recherche (description détaillée)", "généré spécifiquement pour ce rapport : "
+           "explique EN FRANÇAIS SIMPLE pourquoi la personne cherche ce mot-clé et donc quoi écrire pour "
+           "répondre à ce vrai besoin (ex: \"cherche des signaux négatifs avant de s'engager\" → il faut "
+           "aborder honnêtement 1-2 points faibles, pas juste vanter la marque).")
+    bullet("Parent Topic", "le sujet plus large auquel Ahrefs rattache ce mot-clé. Utile pour regrouper "
+           "plusieurs lignes qui parlent en fait de la même chose.")
+    r += 1
+
+    title("Les colonnes de l'onglet GSC")
+    bullet("Clics / Impressions", "clics = personnes qui ont cliqué sur la page depuis Google ; impressions "
+           "= nombre de fois où la page est juste apparue dans les résultats (cliquée ou non).")
+    bullet("CTR", "le % de clics par rapport aux impressions. Un CTR très bas avec beaucoup d'impressions "
+           "= la page apparaît souvent mais le titre/résumé Google n'attire pas assez le clic.")
+    bullet("Position moyenne", "le classement moyen de la page sur cette requête (1 = tout en haut).")
+    r += 1
+
+    title("Comment s'en servir, étape par étape")
+    bullet("1.", "Ouvre l'onglet Concurrents en premier — repère un angle ou un sujet qu'eux couvrent et "
+           "pas la page papernest actuellement.")
+    bullet("2.", "Ouvre GSC — note les 3-5 requêtes qui ramènent déjà le plus de clics : ne les perds "
+           "jamais en réécrivant la page.")
+    bullet("3.", "Ouvre Ahrefs, trie mentalement par Volume/mois décroissant (déjà fait dans le fichier) — "
+           "repère les sous-thèmes/sous-marques avec du volume propre et un Potentiel de trafic élevé : "
+           "ce sont tes candidats pour de nouvelles sections H2.")
+    bullet("4.", "Pour chaque sous-thème retenu, lis sa colonne \"Intention de recherche\" — ça te dit quel "
+           "angle rédiger (preuve sociale, réponse à une inquiétude, comparaison...).")
+    bullet("5.", "Rédige/révise la page avec ces sections, en gardant les mots-clés GSC qui marchent déjà "
+           "et en couvrant les angles concurrents repérés à l'étape 1.", height=60)
+
+    autosize(ws, [110, 20, 20, 20])
+    ws.sheet_view.showGridLines = False
+
+
 def load_json(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -136,8 +238,7 @@ def load_json(path):
 
 def build_serp_sheet(wb, serp_path):
     data = load_json(serp_path)
-    ws = wb.active
-    ws.title = "SERP"
+    ws = wb.create_sheet("SERP")
 
     ws["A1"] = f"SERP — \"{data['keyword']}\" ({data.get('market', 'FR (google.fr)')})"
     ws["A1"].font = TITLE_FONT
@@ -363,6 +464,7 @@ def main():
     args = parser.parse_args()
 
     wb = Workbook()
+    build_aide_sheet(wb)
     build_serp_sheet(wb, args.serp_json)
     build_ahrefs_sheet(wb, args.matching_json, args.brand)
     build_gsc_sheet(wb, args.gsc_csv, args.page_url)

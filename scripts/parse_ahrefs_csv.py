@@ -24,7 +24,7 @@ FIELD_VARIANTS = {
     "difficulty": ["difficulty", "kd", "keyword difficulty"],
     "cpc": ["cpc"],
     "traffic_potential": ["traffic potential", "traffic_potential"],
-    "parent_topic": ["parent topic", "parent_topic"],
+    "parent_topic": ["parent topic", "parent_topic", "parent keyword"],
 }
 
 INTENT_VARIANTS = {
@@ -36,12 +36,30 @@ INTENT_VARIANTS = {
     "local": ["local", "intent: local"],
 }
 
+# Newer Ahrefs exports put all intents in one comma-separated column
+# (e.g. "Informational,Commercial,Branded,Non-local") instead of one
+# boolean column per intent.
+COMBINED_INTENTS_VARIANTS = ["intents", "intent"]
+
 
 def find_column(fieldnames_lower, variants):
     for v in variants:
         if v in fieldnames_lower:
             return fieldnames_lower[v]
     return None
+
+
+def parse_intents(raw_row, intent_cols, combined_col):
+    intents = {}
+    for key, source_col in intent_cols.items():
+        if source_col:
+            val = (raw_row.get(source_col) or "").strip().lower()
+            intents[key] = val not in ("", "0", "false", "no")
+    if combined_col and not any(intents.values()):
+        tokens = {t.strip().lower() for t in (raw_row.get(combined_col) or "").split(",")}
+        for key in INTENT_VARIANTS:
+            intents[key] = key in tokens
+    return intents
 
 
 def to_number(value):
@@ -76,6 +94,7 @@ def main():
             sys.exit(f"Could not find a 'Keyword' column. Columns found: {reader.fieldnames}")
 
         intent_cols = {key: find_column(fieldnames_lower, variants) for key, variants in INTENT_VARIANTS.items()}
+        combined_intents_col = find_column(fieldnames_lower, COMBINED_INTENTS_VARIANTS)
 
         rows = []
         skipped = 0
@@ -89,11 +108,7 @@ def main():
             if cpc is not None and args.cpc_in_cents:
                 cpc = cpc / 100
 
-            intents = {}
-            for key, source_col in intent_cols.items():
-                if source_col:
-                    val = (raw_row.get(source_col) or "").strip().lower()
-                    intents[key] = val not in ("", "0", "false", "no")
+            intents = parse_intents(raw_row, intent_cols, combined_intents_col)
 
             rows.append({
                 "keyword": keyword,

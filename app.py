@@ -25,13 +25,15 @@ from googleapiclient.discovery import build as build_google_service
 from openpyxl import Workbook
 
 from scripts.build_report import (
-    build_serp_sheet, build_ahrefs_sheet, build_gsc_sheet, build_competitor_sheet,
+    build_aide_sheet, build_serp_sheet, build_ahrefs_sheet, build_gsc_sheet, build_competitor_sheet,
 )
 from scripts.fetch_gsc import get_credentials_from_values, run_query as gsc_run_query
 from scripts.fetch_serp import fetch_serp, build_serp_json
 from scripts.find_pages import search_site, domain_of, TARGET_DOMAIN, COMPETITOR_DOMAINS
 from scripts.scrape_competitors import extract_structure, HEADERS as SCRAPE_HEADERS
-from scripts.parse_ahrefs_csv import find_column, to_number, FIELD_VARIANTS, INTENT_VARIANTS
+from scripts.parse_ahrefs_csv import (
+    find_column, to_number, parse_intents, FIELD_VARIANTS, INTENT_VARIANTS, COMBINED_INTENTS_VARIANTS,
+)
 import csv as csv_module
 
 GSC_SITE_PROPERTY = "https://www.papernest.com/"
@@ -106,6 +108,7 @@ def step_parse_ahrefs_csv(uploaded_file):
     if not col["keyword"]:
         raise ValueError(f"Colonne 'Keyword' introuvable. Colonnes trouvées : {reader.fieldnames}")
     intent_cols = {key: find_column(fieldnames_lower, variants) for key, variants in INTENT_VARIANTS.items()}
+    combined_intents_col = find_column(fieldnames_lower, COMBINED_INTENTS_VARIANTS)
 
     rows = []
     for raw_row in reader:
@@ -113,11 +116,7 @@ def step_parse_ahrefs_csv(uploaded_file):
         if not keyword:
             continue
         cpc = to_number(raw_row.get(col["cpc"])) if col["cpc"] else None
-        intents = {}
-        for key, source_col in intent_cols.items():
-            if source_col:
-                val = (raw_row.get(source_col) or "").strip().lower()
-                intents[key] = val not in ("", "0", "false", "no")
+        intents = parse_intents(raw_row, intent_cols, combined_intents_col)
         rows.append({
             "keyword": keyword,
             "volume": to_number(raw_row.get(col["volume"])) if col["volume"] else None,
@@ -165,6 +164,7 @@ def step_fetch_gsc(target_url, client_id, client_secret, refresh_token):
 # ---------------------------------------------------------------------------
 def assemble_workbook(keyword, brand, serp_data, ahrefs_rows, gsc_rows, competitors_data, page_url):
     wb = Workbook()
+    build_aide_sheet(wb)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
