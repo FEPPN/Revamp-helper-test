@@ -16,7 +16,6 @@ import io
 import json
 import subprocess
 import sys
-import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -24,12 +23,8 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build as build_google_service
-from openpyxl import Workbook
 
-from scripts.build_report import (
-    build_aide_sheet, build_serp_sheet, build_ahrefs_sheet, build_gsc_sheet, build_competitor_sheet,
-    build_entity_sheet,
-)
+from scripts.sheets_writer import build_google_sheet_report
 from scripts.fetch_gsc import get_credentials_from_values, run_query as gsc_run_query
 from scripts.fetch_serp import fetch_serp, build_serp_json
 from scripts.find_pages import search_site, domain_of, TARGET_DOMAIN, COMPETITOR_DOMAINS
@@ -44,7 +39,7 @@ ENTITY_SCRIPT = Path(__file__).resolve().parent / "scripts" / "analyze_entities.
 
 st.set_page_config(page_title="Revamp Report — papernest FR", page_icon="📊")
 st.title("📊 Revamp Report — génération automatique")
-st.caption("Mot-clé + marque → rapport Excel (SERP, Ahrefs, GSC, Concurrents). "
+st.caption("Mot-clé + marque → rapport Google Sheets (Aide, SERP, Ahrefs, GSC, Concurrents, Entités). "
            "Aucune installation, aucune clé à toi de gérer.")
 
 
@@ -122,7 +117,6 @@ def step_entity_gap(page_url, competitor_urls, api_key):
     except json.JSONDecodeError:
         return None, "Réponse d'analyse d'entités illisible."
     return data.get("gap"), None
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +149,20 @@ def step_parse_ahrefs_csv(uploaded_file):
             "intents": intents,
             "parent_topic": (raw_row.get(col["parent_topic"]) or "").strip() if col["parent_topic"] else None,
         })
-    return rows
+
+    # Un export Ahrefs avec "Group by terms" répète la même ligne une fois par
+    # groupe de termes auquel le mot-clé appartient (ex: "izi by edf avis"
+    # sous le groupe "izi" ET sous le groupe "by") — même mot-clé, mêmes
+    # chiffres. On dédoublonne pour ne garder qu'une occurrence par mot-clé.
+    seen = set()
+    deduped = []
+    for row in rows:
+        key = row["keyword"].strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
 
 
 # ---------------------------------------------------------------------------
@@ -193,46 +200,6 @@ def step_fetch_gsc(target_url, client_id, client_secret, refresh_token, start_da
             "position": r.get("position", 0.0),
         })
     return rows, match_mode
-
-
-# ---------------------------------------------------------------------------
-# Assembly — same logic as build_report.py, fed from in-memory data instead
-# of files (the CLI script still works standalone for local/manual runs).
-# ---------------------------------------------------------------------------
-def assemble_workbook(keyword, brand, serp_data, ahrefs_rows, gsc_rows, competitors_data, page_url,
-                       entity_gap=None):
-    wb = Workbook()
-    build_aide_sheet(wb)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        serp_path = tmp / "serp.json"
-        serp_path.write_text(json.dumps(serp_data, ensure_ascii=False), encoding="utf-8")
-        build_serp_sheet(wb, serp_path)
-
-        ahrefs_path = tmp / "ahrefs.json"
-        ahrefs_path.write_text(json.dumps(ahrefs_rows, ensure_ascii=False), encoding="utf-8")
-        build_ahrefs_sheet(wb, ahrefs_path, brand)
-
-        gsc_path = tmp / "gsc.csv"
-        with open(gsc_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv_module.writer(f)
-            writer.writerow(["query", "clicks", "impressions", "ctr", "position"])
-            for r in gsc_rows:
-                writer.writerow([r["query"], r["clicks"], r["impressions"], r["ctr"], r["position"]])
-        build_gsc_sheet(wb, gsc_path, page_url)
-
-        comp_path = tmp / "competitors.json"
-        comp_path.write_text(json.dumps(competitors_data, ensure_ascii=False), encoding="utf-8")
-        build_competitor_sheet(wb, comp_path)
-
-        if entity_gap:
-            build_entity_sheet(wb, entity_gap, page_url)
-
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    return buffer
 
 
 # ---------------------------------------------------------------------------
@@ -323,17 +290,23 @@ if submitted:
         else:
             st.warning("Clé Google NLP absente des Secrets de l'app — onglet Entités non rempli.")
 
-        st.write("📁 Assemblage du fichier Excel...")
-        buffer = assemble_workbook(keyword, brand, serp_data, ahrefs_rows, gsc_rows, competitors_data,
-                                    pages["target"]["url"], entity_gap=entity_gap)
+        st.write("📁 Création du Google Sheet...")
+        if not (gsc_client_id and gsc_client_secret and gsc_refresh_token):
+            status.update(label="Échec", state="error")
+            st.error("Identifiants Google absents des Secrets de l'app — impossible de créer le Sheet "
+                     "(le rapport a besoin des mêmes accès que Search Console pour créer/partager le fichier).")
+            st.stop()
+        creds = get_credentials_from_values(gsc_client_id, gsc_client_secret, gsc_refresh_token)
+        sheets_service = build_google_service("sheets", "v4", credentials=creds)
+        drive_service = build_google_service("drive", "v3", credentials=creds)
+        sheet_url = build_google_sheet_report(
+            sheets_service, drive_service, keyword, brand, serp_data, ahrefs_rows, gsc_rows,
+            competitors_data, pages["target"]["url"], entity_gap=entity_gap,
+        )
 
         status.update(label="Terminé ✅", state="complete")
 
     st.success("Rapport généré !")
-    safe_keyword = keyword.replace(" ", "_")
-    st.download_button(
-        "⬇️ Télécharger le rapport Excel",
-        data=buffer,
-        file_name=f"{safe_keyword}_FR_report.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    st.markdown(f"### [📊 Ouvrir le rapport dans Google Sheets]({sheet_url})")
+    st.caption("Le lien est accessible et modifiable par toute personne qui le possède — "
+               "aucune connexion Google requise pour l'ouvrir.")

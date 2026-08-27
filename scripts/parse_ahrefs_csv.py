@@ -120,11 +120,25 @@ def main():
                 "parent_topic": (raw_row.get(col["parent_topic"]) or "").strip() if col["parent_topic"] else None,
             })
 
+    # "Group by terms" répète la même ligne une fois par groupe de termes —
+    # dédoublonne pour ne garder qu'une occurrence par mot-clé.
+    seen = set()
+    deduped = []
+    for row in rows:
+        key = row["keyword"].strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    dup_count = len(rows) - len(deduped)
+    rows = deduped
+
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(rows, f, ensure_ascii=False, indent=2)
 
     print(f"Saved: {args.out} — {len(rows)} mots-clés convertis"
-          + (f", {skipped} lignes vides ignorées" if skipped else ""))
+          + (f", {skipped} lignes vides ignorées" if skipped else "")
+          + (f", {dup_count} doublons retirés (Group by terms)" if dup_count else ""))
     print("Colonnes détectées :", {k: v for k, v in col.items() if v})
     if not col["cpc"]:
         print("⚠️  Pas de colonne CPC trouvée — vérifie l'export si le CPC est important pour ce rapport.")
