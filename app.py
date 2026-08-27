@@ -164,16 +164,24 @@ def step_parse_ahrefs_csv(uploaded_file):
 # hosted app only ever refreshes the stored refresh_token, never logs in
 # interactively itself.
 # ---------------------------------------------------------------------------
-def step_fetch_gsc(target_url, client_id, client_secret, refresh_token):
+def step_fetch_gsc(target_url, client_id, client_secret, refresh_token, start_date, end_date):
     creds = get_credentials_from_values(client_id, client_secret, refresh_token)
     service = build_google_service("searchconsole", "v1", credentials=creds)
 
-    end = date.today()
-    start = end - timedelta(days=180)
+    # Match exact d'abord (le plus précis) ; si l'URL trouvée par SerpAPI diffère
+    # légèrement de celle indexée par Google (slash final, variante...), un match
+    # exact renvoie 0 ligne SANS erreur — on retente alors en "contains".
     raw_rows = gsc_run_query(
-        service, GSC_SITE_PROPERTY, start.isoformat(), end.isoformat(),
-        dimensions=["query"], row_limit=1000, page_filter=target_url,
+        service, GSC_SITE_PROPERTY, start_date.isoformat(), end_date.isoformat(),
+        dimensions=["query"], row_limit=1000, page_filter=target_url, page_operator="equals",
     )
+    match_mode = "exact"
+    if not raw_rows:
+        raw_rows = gsc_run_query(
+            service, GSC_SITE_PROPERTY, start_date.isoformat(), end_date.isoformat(),
+            dimensions=["query"], row_limit=1000, page_filter=target_url, page_operator="contains",
+        )
+        match_mode = "approximatif (\"contains\")"
 
     rows = []
     for r in raw_rows:
@@ -184,7 +192,7 @@ def step_fetch_gsc(target_url, client_id, client_secret, refresh_token):
             "ctr": r.get("ctr", 0.0),
             "position": r.get("position", 0.0),
         })
-    return rows
+    return rows, match_mode
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +245,12 @@ with st.form("revamp_form"):
         "Export CSV Ahrefs (Keywords Explorer → ton mot-clé → Matching terms → Terms match: All → Export)",
         type=["csv"],
     )
+    st.write("**Période Google Search Console**")
+    gsc_col1, gsc_col2 = st.columns(2)
+    with gsc_col1:
+        gsc_start = st.date_input("Du", value=date.today() - timedelta(days=180))
+    with gsc_col2:
+        gsc_end = st.date_input("Au", value=date.today())
     submitted = st.form_submit_button("Générer le rapport")
 
 if submitted:
@@ -280,14 +294,21 @@ if submitted:
         ahrefs_rows = step_parse_ahrefs_csv(ahrefs_csv)
         st.write(f"→ {len(ahrefs_rows)} mots-clés secondaires trouvés")
 
-        st.write("📊 Récupération des stats Google Search Console...")
+        st.write(f"📊 Récupération des stats Google Search Console ({gsc_start} → {gsc_end})...")
         if gsc_client_id and gsc_client_secret and gsc_refresh_token:
-            try:
-                gsc_rows = step_fetch_gsc(pages["target"]["url"], gsc_client_id, gsc_client_secret, gsc_refresh_token)
-                st.write(f"→ {len(gsc_rows)} requêtes trouvées")
-            except Exception as e:
-                st.warning(f"Récupération Search Console impossible ({e}) — le rapport sera généré sans cet onglet rempli.")
+            if gsc_start > gsc_end:
+                st.warning("La date de début est après la date de fin — onglet GSC non rempli.")
                 gsc_rows = []
+            else:
+                try:
+                    gsc_rows, gsc_match_mode = step_fetch_gsc(
+                        pages["target"]["url"], gsc_client_id, gsc_client_secret, gsc_refresh_token,
+                        gsc_start, gsc_end,
+                    )
+                    st.write(f"→ {len(gsc_rows)} requêtes trouvées (match {gsc_match_mode})")
+                except Exception as e:
+                    st.warning(f"Récupération Search Console impossible ({e}) — le rapport sera généré sans cet onglet rempli.")
+                    gsc_rows = []
         else:
             st.warning("Identifiants Search Console absents des Secrets de l'app — onglet GSC non rempli.")
             gsc_rows = []

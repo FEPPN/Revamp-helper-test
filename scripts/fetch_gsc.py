@@ -91,7 +91,8 @@ def list_sites(service):
         print(f"{entry['siteUrl']}\t{entry['permissionLevel']}")
 
 
-def run_query(service, site_url, start_date, end_date, dimensions, row_limit, page_filter=None):
+def run_query(service, site_url, start_date, end_date, dimensions, row_limit, page_filter=None,
+              page_operator="equals"):
     body = {
         "startDate": start_date,
         "endDate": end_date,
@@ -100,7 +101,7 @@ def run_query(service, site_url, start_date, end_date, dimensions, row_limit, pa
     }
     if page_filter:
         body["dimensionFilterGroups"] = [
-            {"filters": [{"dimension": "page", "operator": "equals", "expression": page_filter}]}
+            {"filters": [{"dimension": "page", "operator": page_operator, "expression": page_filter}]}
         ]
     response = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
     return response.get("rows", [])
