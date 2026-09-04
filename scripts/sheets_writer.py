@@ -135,9 +135,20 @@ def write_aide_sheet(sheets_service, spreadsheet_id, sheet_id):
     sheets_service.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": requests}).execute()
 
 
+def _present_label(value):
+    """None means 'never checked' (SerpAPI failed) - must read differently
+    from False ('checked, genuinely absent'), never both as plain 'Absent'."""
+    if value is None:
+        return "Indisponible"
+    return "Présent" if value else "Absent"
+
+
 def write_serp_sheet(sheets_service, spreadsheet_id, sheet_id, serp_data):
     rows = [[f"SERP — \"{serp_data['keyword']}\" ({serp_data.get('market', 'FR (google.fr)')})"],
             [], ["Position", "Titre", "URL", "Résumé"]]
+    if serp_data.get("serp_unavailable"):
+        rows.append([f"⚠️ {serp_data['serp_unavailable']}"])
+        rows.append([])
     for item in serp_data["organic"]:
         rows.append([item["position"], item["title"], item["link"], item["note"]])
     rows.append([])
@@ -150,11 +161,11 @@ def write_serp_sheet(sheets_service, spreadsheet_id, sheet_id, serp_data):
         rows.append([f"• {q}"])
     rows.append([])
     rows.append(["Aperçu IA (AI Overview)"])
-    rows.append(["Présent" if serp_data.get("ai_overview_present") else "Absent"])
+    rows.append([_present_label(serp_data.get("ai_overview_present"))])
     rows.append([serp_data.get("ai_overview_summary", "")])
     rows.append([])
     rows.append(["Knowledge Graph"])
-    rows.append(["Présent" if serp_data.get("knowledge_graph_present") else "Absent"])
+    rows.append([_present_label(serp_data.get("knowledge_graph_present"))])
 
     _values_update(sheets_service, spreadsheet_id, "SERP", rows)
     requests = [

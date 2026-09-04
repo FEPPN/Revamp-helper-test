@@ -256,6 +256,8 @@ if submitted:
         st.write("🔍 Récupération des données SERP Google...")
         raw_serp = fetch_serp(keyword, serpapi_key)
         serp_data = build_serp_json(raw_serp, keyword)
+        if serp_data.get("serp_unavailable"):
+            st.warning(f"⚠️ {serp_data['serp_unavailable']} Le reste du rapport continue quand même.")
 
         st.write("📈 Récupération des mots-clés Ahrefs...")
         ahrefs_rows = step_parse_ahrefs_csv(ahrefs_csv)

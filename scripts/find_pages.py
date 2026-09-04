@@ -33,7 +33,69 @@ COMPETITOR_DOMAINS = [
 ]
 
 
+def search_site_free(keyword, domain):
+    """Free site-search fallback via DuckDuckGo's HTML endpoint (no API key,
+    no quota) - only tried if SerpAPI errors out (quota exhausted, key
+    invalid, etc.). Same technique validated in page-audit-pack. Returns a
+    list shaped like SerpAPI's organic_results (just "link"/"title", the
+    only fields this pipeline actually reads) - empty list if nothing
+    usable comes back. Best-effort: DuckDuckGo's own ranking on a `site:`
+    query can occasionally differ from Google's, and its bot detection is
+    inconsistent, so this is a fallback for availability, not a guaranteed
+    equivalent to SerpAPI."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return []
+    import time
+    import urllib.parse
+    import urllib.request
+
+    query = f"{keyword} site:{domain}"
+    url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/128.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+        "Referer": "https://duckduckgo.com/",
+    }
+    html = ""
+    for _ in range(3):
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+        except Exception:
+            html = ""
+        if html and "anomaly" not in html.lower():
+            break
+        time.sleep(1.5)
+    if not html:
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+    results = []
+    for link in soup.find_all("a", class_="result__a"):
+        href = link.get("href", "")
+        if "uddg=" in href:
+            parsed = urllib.parse.urlparse(href)
+            qs = urllib.parse.parse_qs(parsed.query)
+            href = qs.get("uddg", [href])[0]
+        if domain not in href:
+            continue
+        results.append({"link": href, "title": link.get_text(strip=True), "position": len(results) + 1})
+        if len(results) >= 10:
+            break
+    return results
+
+
 def search_site(keyword, domain, api_key):
+    """Real Google via SerpAPI first (reliable); falls back to free
+    DuckDuckGo only if SerpAPI errors out or its quota is exhausted, instead
+    of crashing the whole app - matches the SerpAPI-first / free-fallback
+    pattern used in page-audit-pack, for the same reason (a free-tier quota
+    running out shouldn't take the whole tool down)."""
     params = {
         "engine": "google",
         "q": f"site:{domain} {keyword}",
@@ -42,9 +104,12 @@ def search_site(keyword, domain, api_key):
         "num": 10,
         "api_key": api_key,
     }
-    r = requests.get(SERPAPI_URL, params=params, timeout=30)
-    r.raise_for_status()
-    return r.json().get("organic_results", [])
+    try:
+        r = requests.get(SERPAPI_URL, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json().get("organic_results", [])
+    except requests.exceptions.RequestException:
+        return search_site_free(keyword, domain)
 
 
 def domain_of(url):

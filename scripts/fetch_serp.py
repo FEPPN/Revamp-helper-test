@@ -11,6 +11,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 
 import requests
@@ -25,6 +26,16 @@ SERPAPI_URL = "https://serpapi.com/search.json"
 
 
 def fetch_serp(keyword, api_key):
+    """No free equivalent exists for this call - unlike find_pages.py's
+    simple "top URL for a site:" search, this pulls Google-SERP-specific
+    data (People Also Ask, related searches, AI Overview presence,
+    Knowledge Graph presence) that a free scraper/DuckDuckGo cannot
+    replicate with the same fidelity. So instead of a fallback, this
+    degrades gracefully: on any SerpAPI failure (quota exhausted, invalid
+    key, etc.) it returns {"_serp_error": <message>} instead of raising -
+    the caller/report must then say "données SERP indisponibles"
+    explicitly, never silently show empty PAA/related searches as if that
+    were a real finding (no PAA questions exist for this keyword)."""
     params = {
         "engine": "google",
         "q": keyword,
@@ -32,12 +43,33 @@ def fetch_serp(keyword, api_key):
         "hl": "fr",
         "api_key": api_key,
     }
-    r = requests.get(SERPAPI_URL, params=params, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.get(SERPAPI_URL, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        # requests' own exception message embeds the full request URL,
+        # api_key included - this message ends up in the Google Sheet report
+        # (write_serp_sheet), so the key must never reach it in clear text.
+        safe_message = re.sub(r"api_key=[^&\s]+", "api_key=***", str(e))
+        return {"_serp_error": safe_message}
 
 
 def build_serp_json(raw, keyword):
+    if raw.get("_serp_error"):
+        return {
+            "keyword": keyword,
+            "market": "FR (google.fr)",
+            "organic": [],
+            "paa": [],
+            "related_searches": [],
+            "ai_overview_present": None,
+            "ai_overview_summary": "",
+            "knowledge_graph_present": None,
+            "serp_unavailable": f"Données SERP indisponibles (SerpAPI a échoué : {raw['_serp_error']}) "
+                                 f"— champs ci-dessus non renseignés, pas 'aucun résultat trouvé'.",
+        }
+
     organic = []
     for item in raw.get("organic_results", [])[:10]:
         organic.append({
